@@ -196,4 +196,8 @@ cron.schedule('0 */3 * * *', async () => {
 // Start the server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
+  // Trigger notifications immediately on deployment
+  console.log('Triggering notifications on deployment...');
+  await sendNotifications();
+  
 });
