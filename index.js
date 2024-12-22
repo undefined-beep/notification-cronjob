@@ -81,19 +81,21 @@ const sendNotifications = async () => {
       const batch = users.slice(i, i + BATCH_SIZE);
 
       await Promise.all(
-        batch.map(user =>
-          axios
-            .post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        batch.map(async user => {
+          try {
+            await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
               chat_id: user.chatId,
               text: message,
               disable_notification: false,
-            })
-            .catch(err => {
-              console.error(`Failed to send to ${user.chatId}:`, err.message);
-              failedCount += 1;
-            })
-        )
+            });
+          } catch (err) {
+            console.error(`Failed to send to ${user.chatId}:`, err.message);
+            console.log(`Failed to send to ${user.chatId}:`, err);
+            failedCount += 1;
+          }
+        })
       );
+      
 
       console.log(`Batch ${i / BATCH_SIZE + 1} sent`);
 
@@ -149,15 +151,21 @@ app.post('/api/send-notifications', async (req, res) => {
 
       // Send notifications to the batch
       await Promise.all(
-        batch.map(user =>
-          axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-            chat_id: user.chatId,
-            text: message, // Use the cached message
-            disable_notification: false,
-          }).catch(err =>( console.error(`Failed to send to ${user.chatId}:`, err.message), failedCount += 1) )
-          
-        )
+        batch.map(async user => {
+          try {
+            await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+              chat_id: user.chatId,
+              text: message,
+              disable_notification: false,
+            });
+          } catch (err) {
+            console.error(`Failed to send to ${user.chatId}:`, err);
+            console.log(`Failed to send to ${user.chatId}:`, err);
+            failedCount += 1;
+          }
+        })
       );
+      
 
       console.log(`Batch ${i / BATCH_SIZE + 1} sent`);
 
