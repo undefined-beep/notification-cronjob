@@ -159,8 +159,8 @@ app.post('/api/send-notifications', async (req, res) => {
               disable_notification: false,
             });
           } catch (err) {
-            console.error(`Failed to send to ${user.chatId}:`, err);
-            console.log(`Failed to send to ${user.chatId}:`, err);
+            // console.error(`Failed to send to ${user.chatId}:`, err);
+            // console.log(`Failed to send to ${user.chatId}:`, err);
             failedCount += 1;
           }
         })
@@ -180,7 +180,7 @@ app.post('/api/send-notifications', async (req, res) => {
 
     res.status(200).json({ message: 'Notifications sent successfully' });
   } catch (error) {
-    console.error('Error sending notifications:', error);
+    // console.error('Error sending notifications:', error);
     
     res.status(500).json({ error: 'Failed to send notifications' });
   }
