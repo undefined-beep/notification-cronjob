@@ -9,7 +9,6 @@ const prisma = new PrismaClient();
 const redis = new Redis(process.env.REDIS_URL); // Use Redis connection string
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
 
 // API to set the notification message
@@ -43,13 +42,16 @@ app.post('/api/set-message', async (req, res) => {
       id: notification.id, // Return the created or updated notification's ID
     });
   } catch (error) {
-    // console.error('Failed to set notification message:', error.message);
+    console.error('Failed to set notification message:', error.message);
     res.status(500).json({ error: 'Failed to set notification message' });
   }
 });
 
+const MAX_MESSAGES_PER_SECOND = 20;
+const PAGE_SIZE = 1000;// Define the number of users to fetch per page
+
 const sendNotifications = async () => {
-  const BATCH_SIZE = 30;
+  const BATCH_SIZE = 300;
   const DELAY = 1000;
 
   try {
@@ -64,127 +66,136 @@ const sendNotifications = async () => {
       await redis.set('notification_message', message);
     }
 
-    let users = await redis.get('users');
-    if (!users) {
-      users = await prisma.user.findMany();
-      await redis.set('users', JSON.stringify(users));
-    } else {
-      users = JSON.parse(users);
+    console.log("yaha tak pahch gy ahai ");
+
+    let users;
+    let page = 0;
+    // let fetchedUsers;
+
+
+      // Initialize counters
+      let successCount = 0;
+      let chatNotFoundCount = 0;
+      let blockedCount = 0;
+      let errorCount = 0;
+
+
+
+    do {
+      users = await prisma.user.findMany({
+        skip: page * PAGE_SIZE,
+        take: PAGE_SIZE,
+      });
+
+      const batches = [];
+
+
+      for (let i = 0; i < users.length; i += MAX_MESSAGES_PER_SECOND) {
+        batches.push(users.slice(i, i + MAX_MESSAGES_PER_SECOND));
     }
 
-    const totalUsers = users.length;
-    let failedCount = 0;
 
-    console.log(`Sending notifications to ${totalUsers} users...`);
 
-    for (let i = 0; i < totalUsers; i += BATCH_SIZE) {
-      const batch = users.slice(i, i + BATCH_SIZE);
-
-      await Promise.all(
-        batch.map(async user => {
+    for (const batch of batches) {
+      const results = await Promise.all(batch.map(async user => {
           try {
-            await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-              chat_id: user.chatId,
-              text: message,
-              disable_notification: false,
-            });
-          } catch (err) {
-            // console.error(`Failed to send to ${user.chatId}:`, err.message);
-            // console.log(`Failed to send to ${user.chatId}:`, err);
-            failedCount += 1;
+              const result = await sendTelegramMessage(user.chatId, message);
+              return result;
+          } catch (error) {
+              console.log(`Failed to send message to tgId: ${user.tgId}. Error: ${error.message}`);
+              return 'error';
           }
-        })
-      );
-      
+      }));
 
-      console.log(`Batch ${i / BATCH_SIZE + 1} sent`);
-
-      if (i + BATCH_SIZE < totalUsers) {
-        await new Promise(resolve => setTimeout(resolve, DELAY));
+      // Process the results
+      for (const result of results) {
+          if (result === 'success') {
+              successCount++;
+          } else if (result === 'chat_not_found') {
+              chatNotFoundCount++;
+          } else if (result === 'blocked') {
+              blockedCount++;
+          } else {
+              errorCount++;
+          }
       }
-    }
 
-    console.log(`Notifications sent: ${totalUsers - failedCount}`);
-    console.log(`Failed messages: ${failedCount}`);
+      console.log(`Sent batch, waiting 1 second...`);
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second between batches
+  }
+
+
+    console.log(`Processed page ${page + 1}`);;
+      page++ 
+
+
+
+
+    } while (users.length >0);
+
+    console.log("Messages sent to all users successfully.");
+    console.log(`Successfully sent messages: ${successCount}`);
+    console.log(`Chat not found users: ${chatNotFoundCount}`);
+    console.log(`Blocked users: ${blockedCount}`);
+    console.log(`Other errors: ${errorCount}`);
+
+    // console.log("🚀 ~ sendNotifications ~ users:", users.length);
+
+
   } catch (error) {
-    // console.error('Error sending notifications:', error);
+    console.error('Error sending messages to users:', error);
   }
 };
 
 
 
-// API to send batch notifications
-app.post('/api/send-notifications', async (req, res) => {
-  const BATCH_SIZE = 30; // Telegram rate limit
-  const DELAY = 1000; // Delay in ms between batches
-
+const sendTelegramMessage = async (tgId, message, image, buttonName) => {
+  console.log("🚀 ~ sendTelegramMessage ~ tgId:", tgId)
   try {
-    // Fetch the message from Redis or the Notification table
-    let message = await redis.get('notification_message');
-    if (!message) {
-      const notification = await prisma.notification.findMany();
-      console.log("🚀 ~ app.post ~ notification:", notification)
-      console.log("🚀 ~ app.post ~ notification:", notification[0].id)
-      console.log("🚀 ~ app.post ~ notification:", notification[0].message)
-      if (!notification[0].id || !notification[0].message) {
-        return res.status(400).json({ error: 'Notification message is not set. Use /api/set-message first.' });
-      }
-      message = notification[0].message;
-      await redis.set('notification_message', message); // Cache the message
-    }
-
-    // Fetch users from Redis or the database
-    let users = await redis.get('users');
-    if (!users) {
-      users = await prisma.user.findMany();
-      await redis.set('users', JSON.stringify(users), 'EX', 4 * 24 * 60 * 60); 
-    } else {
-      users = JSON.parse(users);
-    }
-
-    const totalUsers = users.length;
-    let failedCount = 0; 
-    console.log(`Sending notifications to ${totalUsers} users...`);
-
-    for (let i = 0; i < totalUsers; i += BATCH_SIZE) {
-      const batch = users.slice(i, i + BATCH_SIZE);
-
-      // Send notifications to the batch
-      await Promise.all(
-        batch.map(async user => {
-          try {
-            await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-              chat_id: user.chatId,
+      // let miniAppLink = process.env.TG_MINI_APP_LINK;
+          const textPayload = {
+              chat_id: tgId,
               text: message,
-              disable_notification: false,
-            });
-          } catch (err) {
-            // console.error(`Failed to send to ${user.chatId}:`, err);
-            // console.log(`Failed to send to ${user.chatId}:`, err);
-            failedCount += 1;
-          }
-        })
-      );
-      
-
-      console.log(`Batch ${i / BATCH_SIZE + 1} sent`);
-
-      // Delay before the next batch
-      if (i + BATCH_SIZE < totalUsers) {
-        await new Promise(resolve => setTimeout(resolve, DELAY));
-      }
-    }
-
-    console.log(`Notifications sent: ${totalUsers - failedCount}`);
-    console.log(`Failed messages: ${failedCount}`);
-
-    res.status(200).json({ message: 'Notifications sent successfully' });
-  } catch (error) {
-    // console.error('Error sending notifications:', error);
+              // reply_markup: {
+              //     inline_keyboard: [
+              //         [
+              //             {
+              //                 text: buttonName,
+              //                 url: miniAppLink
+              //             }
+              //         ]
+              //     ]
+              // }
+          };
+          await axios.post(`${process.env.TELEGRAM_API_URL}/sendMessage`, textPayload);
+          console.log(`Message with button sent to tgId: ${tgId}`);
     
-    res.status(500).json({ error: 'Failed to send notifications' });
+      return 'success';
+  } catch (error) {
+      if (error.response) {
+          const errorCode = error.response.data.error_code;
+          const description = error.response.data.description;
+          if (errorCode === 403) {
+              console.error(`Bot was blocked by tgId: ${tgId}`);
+              return 'blocked';
+          } else if (errorCode === 400 && description.includes('chat not found')) {
+              console.error(`Chat not found for tgId: ${tgId}`);
+              return 'chat_not_found';
+          } else if (errorCode === 400 && description.includes('user not found')) {
+              console.error(`User not found for tgId: ${tgId}`);
+              return 'chat_not_found';
+          } else {
+              console.error(`Failed to send message to tgId: ${tgId}`, error.response.data);
+              return 'error';
+          }
+      } else {
+          console.error(`Failed to send message to tgId: ${tgId}`, error.message);
+          return 'error';
+      }
   }
-});
+};
+
+
 
 // Graceful shutdown on exit
 process.on('SIGINT', async () => {
