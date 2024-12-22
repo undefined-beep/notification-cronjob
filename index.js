@@ -43,7 +43,7 @@ app.post('/api/set-message', async (req, res) => {
       id: notification.id, // Return the created or updated notification's ID
     });
   } catch (error) {
-    console.error('Failed to set notification message:', error.message);
+    // console.error('Failed to set notification message:', error.message);
     res.status(500).json({ error: 'Failed to set notification message' });
   }
 });
@@ -89,8 +89,8 @@ const sendNotifications = async () => {
               disable_notification: false,
             });
           } catch (err) {
-            console.error(`Failed to send to ${user.chatId}:`, err.message);
-            console.log(`Failed to send to ${user.chatId}:`, err);
+            // console.error(`Failed to send to ${user.chatId}:`, err.message);
+            // console.log(`Failed to send to ${user.chatId}:`, err);
             failedCount += 1;
           }
         })
@@ -107,7 +107,7 @@ const sendNotifications = async () => {
     console.log(`Notifications sent: ${totalUsers - failedCount}`);
     console.log(`Failed messages: ${failedCount}`);
   } catch (error) {
-    console.error('Error sending notifications:', error);
+    // console.error('Error sending notifications:', error);
   }
 };
 
